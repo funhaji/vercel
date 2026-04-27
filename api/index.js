@@ -1,6 +1,11 @@
 export const config = { runtime: "edge" };
 
-const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+// TARGET_DOMAIN can be a single URL or a comma-separated list of URLs.
+// e.g. "https://a.example.com,https://b.example.com,https://1.2.3.4:8080"
+const RAW_TARGETS = (process.env.TARGET_DOMAIN || "")
+  .split(",")
+  .map((t) => t.trim().replace(/\/$/, ""))
+  .filter(Boolean);
 
 const STRIP_HEADERS = new Set([
   "host",
@@ -18,12 +23,20 @@ const STRIP_HEADERS = new Set([
   "x-forwarded-port",
 ]);
 
+function pickTarget() {
+  if (RAW_TARGETS.length === 0) return null;
+  // Random selection across all targets for simple load balancing
+  return RAW_TARGETS[Math.floor(Math.random() * RAW_TARGETS.length)];
+}
+
 export default async function handler(req) {
-  if (!TARGET_BASE) {
+  if (RAW_TARGETS.length === 0) {
     return new Response("Misconfigured: TARGET_DOMAIN is not set", { status: 500 });
   }
 
   try {
+    const TARGET_BASE = pickTarget();
+
     const pathStart = req.url.indexOf("/", 8);
     const targetUrl =
       pathStart === -1 ? TARGET_BASE + "/" : TARGET_BASE + req.url.slice(pathStart);
