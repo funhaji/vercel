@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>relay · usage</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f; --bg2: #181818; --bg3: #222;
+    --border: rgba(255,255,255,0.08);
+    --text: #e8e8e5; --muted: #888; --faint: #555;
+    --green: #639922; --red: #E24B4A; --amber: #BA7517;
+    --mono: 'JetBrains Mono', 'Fira Mono', 'Cascadia Code', monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); padding: 2rem; min-height: 100vh; }
+  h1 { font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 6px; }
+  .dot.err { background: var(--red); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+  .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card .label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .card .value { font-size: 24px; font-weight: 500; }
+  .panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+  .panel .title { font-size: 11px; color: var(--muted); margin-bottom: 14px; letter-spacing: 0.05em; }
+  #bar-wrap { display: flex; align-items: flex-end; gap: 6px; height: 80px; }
+  #bar-labels { display: flex; gap: 6px; margin-top: 6px; }
+  .bar { flex: 1; border-radius: 3px 3px 0 0; background: #333; min-width: 0; }
+  .bar.today { background: var(--green); }
+  .blabel { flex: 1; font-size: 10px; color: var(--faint); text-align: center; min-width: 0; overflow: hidden; }
+  .status-row { margin-bottom: 10px; }
+  .status-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .status-track { height: 5px; background: var(--bg3); border-radius: 3px; }
+  .status-fill { height: 100%; border-radius: 3px; }
+  #footer { font-size: 11px; color: var(--faint); margin-top: 1rem; text-align: right; display: flex; justify-content: space-between; }
+  button { background: transparent; border: 1px solid var(--border); color: var(--muted); font-family: var(--mono); font-size: 11px; padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+  button:hover { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .no-data { font-size: 12px; color: var(--faint); }
+</style>
+</head>
+<body>
+<h1>
+  <span><span class="dot" id="dot"></span>vercel-xhttp-relay · usage</span>
+  <span id="refresh-label" style="font-size:11px;color:var(--faint);">—</span>
+</h1>
+
+<div class="grid">
+  <div class="card"><div class="label">total requests</div><div class="value" id="s-total">—</div></div>
+  <div class="card"><div class="label">today</div><div class="value" id="s-today">—</div></div>
+  <div class="card"><div class="label">data proxied</div><div class="value" id="s-bytes">—</div></div>
+  <div class="card"><div class="label">5xx error rate</div><div class="value" id="s-err">—</div></div>
+</div>
+
+<div class="panel">
+  <div class="title">requests — last 7 days</div>
+  <div id="bar-wrap"></div>
+  <div id="bar-labels"></div>
+</div>
+
+<div class="panel">
+  <div class="title">status breakdown</div>
+  <div id="status-breakdown"></div>
+</div>
+
+<div id="footer">
+  <span id="last-req">last request: —</span>
+  <button onclick="load()">↺ refresh</button>
+</div>
+
+<script>
+function fmt(n) { return (n||0).toLocaleString(); }
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const u = ['B','KB','MB','GB','TB'], i = Math.floor(Math.log(b)/Math.log(1024));
+  return (b/Math.pow(1024,i)).toFixed(1)+' '+u[i];
+}
+function timeAgo(ts) {
+  if (!ts) return 'never';
+  const s = Math.floor((Date.now()-ts)/1000);
+  if (s < 60) return s+'s ago';
+  if (s < 3600) return Math.floor(s/60)+'m ago';
+  if (s < 86400) return Math.floor(s/3600)+'h ago';
+  return Math.floor(s/86400)+'d ago';
+}
+function renderBars(daily) {
+  const w = document.getElementById('bar-wrap');
+  const l = document.getElementById('bar-labels');
+  if (!daily?.length) { w.innerHTML = '<span class="no-data">no data yet</span>'; return; }
+  const max = Math.max(...daily.map(d=>d.count), 1);
+  const today = new Date().toISOString().slice(0,10);
+  w.innerHTML = daily.map(d=>{
+    const h = Math.max(4, Math.round((d.count/max)*80));
+    return `<div class="bar${d.date===today?' today':''}" style="height:${h}px" title="${d.date}: ${d.count}"></div>`;
+  }).join('');
+  l.innerHTML = daily.map(d=>`<div class="blabel">${d.date.slice(5)}</div>`).join('');
+}
+function renderStatus(sg, total) {
+  const el = document.getElementById('status-breakdown');
+  if (!sg || !total) { el.innerHTML = '<span class="no-data">no data yet</span>'; return; }
+  const colors = {'2xx':getComputedStyle(document.body).getPropertyValue('--green').trim(),'3xx':'#BA7517','4xx':'#BA7517','5xx':getComputedStyle(document.body).getPropertyValue('--red').trim()};
+  el.innerHTML = Object.entries(sg).filter(([,v])=>v>0).map(([k,v])=>{
+    const pct = Math.round((v/total)*100);
+    return `<div class="status-row">
+      <div class="status-meta"><span>${k}</span><span>${fmt(v)} (${pct}%)</span></div>
+      <div class="status-track"><div class="status-fill" style="width:${pct}%;background:${colors[k]||'#555'}"></div></div>
+    </div>`;
+  }).join('') || '<span class="no-data">no data yet</span>';
+}
+
+async function load() {
+  document.getElementById('refresh-label').textContent = 'loading...';
+  document.getElementById('dot').className = 'dot';
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) throw new Error(res.status);
+    const d = await res.json();
+    document.getElementById('s-total').textContent = fmt(d.totalRequests);
+    document.getElementById('s-today').textContent = fmt(d.todayRequests);
+    document.getElementById('s-bytes').textContent = fmtBytes(d.totalBytes);
+    const errPct = d.totalRequests > 0 ? ((d.errors5xx/d.totalRequests)*100).toFixed(1)+'%' : '0%';
+    document.getElementById('s-err').textContent = errPct;
+    document.getElementById('last-req').textContent = 'last request: '+timeAgo(d.lastRequestAt);
+    renderBars(d.daily);
+    const tot = Object.values(d.statusGroups||{}).reduce((a,b)=>a+b,0);
+    renderStatus(d.statusGroups, tot);
+    document.getElementById('refresh-label').textContent = 'updated '+new Date().toLocaleTimeString();
+    document.getElementById('dot').className = 'dot';
+  } catch(e) {
+    document.getElementById('refresh-label').textContent = 'error: '+e.message;
+    document.getElementById('dot').className = 'dot err';
+  }
+}
+load();
+setInterval(load, 30000);
+</script>
+</body>
+</html>

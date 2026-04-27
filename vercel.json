@@ -2,6 +2,8 @@
   "version": 2,
   "name": "vercel-xhttp-relay",
   "rewrites": [
+    { "source": "/api/stats", "destination": "/api/stats" },
+    { "source": "/dashboard", "destination": "/public/dashboard.html" },
     { "source": "/(.*)", "destination": "/api/index" }
   ],
   "trailingSlash": false
